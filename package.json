@@ -19,6 +19,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
+    "install:plugin": "bash install-plugin.sh",
     "test": "node test/verify-core.mjs && node test/integration-move.mjs"
   },
   "keywords": [

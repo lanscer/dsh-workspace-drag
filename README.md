@@ -23,6 +23,28 @@
 
 **DSH Web UI plugin** — in the sidebar grouped view, drag a conversation onto another workspace's title (or any session row within that group) and release to move the conversation there. **Seamless drag-and-drop**: no popups, no intermediate panels — drop it and it's organized.
 
+## Installation
+
+One-command install into the DSH web profile:
+
+```sh
+npm run install:plugin
+```
+
+or directly:
+
+```sh
+bash install-plugin.sh
+```
+
+This registers the plugin into `~/.dsh/profiles/web` by adding a `link:` dependency to the profile's `package.json` and creating a `node_modules` symlink. It does **not** run `pnpm install`, so it avoids the pnpm `minimumReleaseAge` policy that rejects dependencies published within the last 24 hours. Idempotent — re-running is a no-op when already installed.
+
+After installation:
+- Client-only changes: refresh the browser page.
+- Host changes: restart `dsh web`.
+
+> Note: the plugin requires the `zstd` CLI (see [Dependencies](#dependencies)).
+
 ## Features
 
 - **Seamless cross-workspace drag-and-drop**: drag a session row → hover over another workspace group (title or any session row within it) to highlight → release to migrate.

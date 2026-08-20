@@ -61,9 +61,11 @@ node install-plugin.mjs
   - 成功后短暂提示，会话立即出现在目标工作区。
 - **开关**：在 **设置 → 拖拽归类对话** 页面一键启用/关闭；关闭后拖拽不生效（高亮/迁移都被禁用）。
 - **安全**：
-  - 正在写入中的会话（Agent 运行中，日志在过去 30 秒内被修改）**不能移动**。
+  - Agent 正在运行中的会话**不能移动**（基于 agent 状态精确判断，不再用粗暴的 30 秒 mtime 窗口）。
+  - 刚聊完的会话：拖拽后宿主端自动等待写入静止（最长 15 秒）再迁移，一次拖拽即完成，无需"等一会再拖一次"。
   - 迁移在宿主端先复制 + 校验新文件，确认无误后才删除旧目录，失败不丢数据。
-  - 移动的是会话日志文件的物理位置 + 头部 `cwd` 字段，并同步工作区注册表归属账本。
+  - 移动的是会话日志文件的物理位置 + 头部 `cwd` 字段，并同步工作区注册表归属账本与内存状态
+    （live header / 持久化协调器缓存 / 注册表索引），移动后可继续在该会话中对话。
 
 ## 原理（数据层）
 
@@ -99,7 +101,7 @@ dsh-workspace-drag/
 | --- | --- | --- |
 | GET  | `/api/dsh-workspace-drag/config` | 读开关 `{ "enabled": true }` |
 | POST | `/api/dsh-workspace-drag/config` | 写开关 `{ "enabled": false }` |
-| POST | `/api/dsh-workspace-drag/move` | `{ "sessionId", "targetWorkspaceId" }` 迁移对话 |
+| POST | `/api/dsh-workspace-drag/move` | `{ "sessionId", "targetWorkspaceId", "waitMs" }` 迁移对话；`waitMs`（0–30000，可选）让宿主端等待 agent 结束/日志静止后自动完成，失败响应带 `code`（`agent-running` / `writing` / `move-failed`） |
 
 配置持久化在 `~/.dsh/dsh-workspace-drag.json`。
 
@@ -119,7 +121,7 @@ node integration-move.mjs # 端到端集成测试（临时目录，不碰真实�
 
 ## 使用限制
 
-- 正在写入中的对话（Agent 运行中，日志在过去 30 秒内被修改）不能移动。
+- Agent 正在运行中的对话不能移动（会提示等待回复完成）；刚结束的对话由宿主端自动等待日志静止后迁移。
 - 迁移会改变会话的 `cwd`，也就是它所属的工作区与磁盘存储位置；这是"归到某工作区"的本质。
 - 需要 `zstd` CLI 已安装（自动 PATH 检测，无硬编码路径）。
 

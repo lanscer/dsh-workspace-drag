@@ -59,9 +59,10 @@ After installation:
   - A brief success banner appears after the move, and the conversation immediately appears in the target workspace.
 - **Toggle**: enable/disable with one click on the **Settings → Drag to Organize** page; when disabled, drag-and-drop is inert (no highlighting, no migration).
 - **Safety**:
-  - Sessions that are currently being written to (agent running, log modified within the last 30 seconds) **cannot be moved**.
+  - Sessions whose agent is currently running **cannot be moved** (exact agent-status check, no more coarse 30-second mtime window).
+  - For a conversation that just finished: the host automatically waits for the log to quiesce (up to 15 s) and then migrates — one drop completes the move, no "retry later" loop.
   - The host-side migration is a copy-verify-atomic-swap: the session directory is copied to a staging location, the rewritten log is verified, then published to the destination. The old directory is only removed after the new copy is verified — data is never lost on failure.
-  - The migration physically relocates the session log file, rewrites the header `cwd` field, and updates the workspace registry ownership account.
+  - The migration physically relocates the session log file, rewrites the header `cwd` field, and updates the workspace registry ownership account plus in-memory state (live header / persistence-coordinator cache / registry index), so the conversation remains usable after the move.
 
 ## Data Model
 
@@ -93,7 +94,7 @@ dsh-workspace-drag/
 | --- | --- | --- |
 | GET  | `/api/dsh-workspace-drag/config` | Read toggle `{ "enabled": true }` |
 | POST | `/api/dsh-workspace-drag/config` | Write toggle `{ "enabled": false }` |
-| POST | `/api/dsh-workspace-drag/move` | `{ "sessionId", "targetWorkspaceId" }` — move a conversation |
+| POST | `/api/dsh-workspace-drag/move` | `{ "sessionId", "targetWorkspaceId", "waitMs" }` — move a conversation; optional `waitMs` (0–30000) makes the host wait for the agent/log to quiesce and finish automatically; failures carry a `code` (`agent-running` / `writing` / `move-failed`) |
 
 Configuration is persisted in `~/.dsh/dsh-workspace-drag.json`.
 
@@ -113,7 +114,7 @@ node integration-move.mjs # End-to-end integration test (temp directory, does no
 
 ## Limitations
 
-- Sessions being actively written to (agent running, log modified within the last 30 seconds) cannot be moved.
+- Conversations whose agent is currently running cannot be moved (you are asked to wait for the reply to finish); for a just-finished conversation the host waits for the log to quiesce and migrates automatically.
 - Migration changes the session's `cwd` — its workspace ownership and disk storage location. This is the essence of "organizing into a workspace."
 - The `zstd` CLI must be installed (auto-detected via PATH; no hardcoded path).
 

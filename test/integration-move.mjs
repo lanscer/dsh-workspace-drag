@@ -34,7 +34,7 @@ function findZstd() {
 const ZSTD_BIN = findZstd()
 
 // ---- Prepare a temp sessions root with a real session ----
-const SRC = './fixtures/multiframe-session.jsonl.zstd'
+const SRC = new URL('./fixtures/multiframe-session.jsonl.zstd', import.meta.url).pathname
 const SESSION_ID = '46628005-3c45-4826-8600-97ae1994abff'
 const OLD_CWD = '/src/workspace'
 const NEW_CWD = '/tmp/test-target-workspace'
@@ -125,13 +125,19 @@ const persistence = {
   locate(header) {
     return { kind: 'jsonl', path: join(root, projectKey(header.cwd), header.id, 'session.jsonl.zstd') }
   },
+  // Fake coordinator bookkeeping — the real one caches meta.cwd per id and is
+  // cleared by the move so the next append re-adopts from disk.
+  coordinator: {
+    states: new Map([[SESSION_ID, { meta: { cwd: OLD_CWD } }]]),
+    live: new Map(),
+  },
 }
 
 const registry = {
   get(id) { return fakeEntities.find((e) => e.id === id) },
   list() { return fakeEntities },
-  replaceHeaderIndexCalls: 0,
-  async replaceHeaderIndex() { registry.replaceHeaderIndexCalls += 1 },
+  indexHeaderCalls: [],
+  async indexHeader(header) { registry.indexHeaderCalls.push(header) },
 }
 
 const ctx = {
@@ -143,12 +149,14 @@ const ctx = {
 // ---- Live-session layered safety tests (before the main move, so the
 //      session is still in its original location) ----
 let allPass = true
-// Case A: LIVE + fresh mtime (< 30s) -> must be refused (agent writing).
+const checks = []
+// Case A: LIVE + fresh mtime (< 2s) + waitMs 0 -> must be refused immediately.
 {
-  const liveCtx = { ...ctx, sessions: { get() { return { id: SESSION_ID } } } }
+  const liveSession = { id: SESSION_ID, header: { id: SESSION_ID, cwd: OLD_CWD } }
+  const liveCtx = { ...ctx, sessions: { get() { return liveSession } } }
   let threw = false, msg = ''
   try {
-    await moveSessionToWorkspace(liveCtx, SESSION_ID, NEW_WORKSPACE_ID)
+    await moveSessionToWorkspace(liveCtx, SESSION_ID, NEW_WORKSPACE_ID, { waitMs: 0 })
   } catch (e) { threw = true; msg = e.message }
   console.log(`${threw && msg.includes('写入中') ? '✅' : '❌'} live+fresh-mtime refused: ${msg.slice(0, 40)}`)
   if (!threw || !msg.includes('写入中')) allPass = false
@@ -159,19 +167,26 @@ let allPass = true
   const past = new Date(Date.now() - 120_000)
   const { utimesSync } = await import('node:fs')
   utimesSync(logPath, past, past)
-  const liveCtx = { ...ctx, sessions: { get() { return { id: SESSION_ID } } } }
+  const liveSession = { id: SESSION_ID, header: { id: SESSION_ID, cwd: OLD_CWD } }
+  const liveCtx = { ...ctx, sessions: { get() { return liveSession } } }
   let threw = false, msg = ''
   try {
-    const r = await moveSessionToWorkspace(liveCtx, SESSION_ID, NEW_WORKSPACE_ID)
+    const r = await moveSessionToWorkspace(liveCtx, SESSION_ID, NEW_WORKSPACE_ID, { waitMs: 0 })
     msg = 'moved: ' + JSON.stringify(r)
   } catch (e) { threw = true; msg = e.message }
   console.log(`${!threw ? '✅' : '❌'} live+old-mtime allowed: ${msg.slice(0, 50)}`)
   if (threw) allPass = false
+  // The in-memory reconciliation must have run: live header stamped with the
+  // new cwd, coordinator state dropped, registry index updated (single-shot,
+  // no full rebuild).
+  checks.push(['live header cwd updated', liveSession.header && liveSession.header.cwd === NEW_CWD])
+  checks.push(['coordinator state dropped', !persistence.coordinator.states.has(SESSION_ID)])
+  checks.push(['registry indexHeader called', registry.indexHeaderCalls.length === 1])
+  checks.push(['indexed header has new cwd', registry.indexHeaderCalls[0] && registry.indexHeaderCalls[0].cwd === NEW_CWD])
 }
 
 // ---- Assertions ----
 const newSessionDir = join(root, projectKey(NEW_CWD), SESSION_ID)
-const checks = []
 checks.push(['old session dir removed', !existsSync(oldSessionDir)])
 checks.push(['new session dir exists', existsSync(newSessionDir)])
 checks.push(['companion artifact copied', existsSync(join(newSessionDir, 'notes.txt'))])
@@ -188,7 +203,6 @@ const movedFrameCount = scanZstdFrames(readFileSync(join(newSessionDir, 'session
 checks.push(['frame count preserved', movedFrameCount === origFrameCount])
 
 // Registry calls
-checks.push(['replaceHeaderIndex called', registry.replaceHeaderIndexCalls === 1])
 checks.push(['old workspace detached', oldEntity.detachCalls.includes(SESSION_ID)])
 checks.push(['new workspace attached', newEntity.attachCalls.includes(SESSION_ID)])
 checks.push(['old sessionIds empty', !oldEntity.sessionIds.includes(SESSION_ID)])

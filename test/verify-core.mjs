@@ -68,21 +68,33 @@ function encodeLogZstd(plaintext) {
 }
 
 function rewriteHeaderCwd(plaintext, newCwd) {
-  const firstNl = plaintext.indexOf('\n')
-  const head = firstNl === -1 ? plaintext : plaintext.slice(0, firstNl)
-  const rest = firstNl === -1 ? '' : plaintext.slice(firstNl)
+  // The fixture's header frame carries no trailing newline (a real dsh log
+  // frame is exactly the header line). Split at the first object boundary
+  // ("}{") the same way the plugin's frame-level rewrite tolerates it, and
+  // terminate the rewritten header with '\n' as the plugin does.
+  let end = plaintext.indexOf('\n')
+  const boundary = plaintext.indexOf('}{')
+  if (boundary !== -1 && (end === -1 || boundary + 1 < end)) end = boundary + 1
+  const head = end === -1 ? plaintext : plaintext.slice(0, end)
+  const rest = end === -1 ? Buffer.from('\n') : plaintext.slice(end)
   let header
   try { header = JSON.parse(head.toString('utf8')) } catch (e) { throw new Error(`unparseable header: ${e.message}`) }
   if (typeof header.cwd !== 'string') throw new Error('header has no cwd')
   header.cwd = newCwd
-  const newHead = Buffer.from(JSON.stringify(header))
+  const newHead = Buffer.from(JSON.stringify(header) + '\n')
   return Buffer.concat([newHead, rest])
 }
 
 // ---- Test ----
-const srcLog = './fixtures/multiframe-session.jsonl.zstd'
+const srcLog = new URL('./fixtures/multiframe-session.jsonl.zstd', import.meta.url).pathname
 const original = decodeLog(srcLog)
-const headerLine = original.slice(0, original.indexOf('\n')).toString('utf8')
+// Same object-boundary extraction as above: the fixture header has no
+// trailing newline, so the first '\n' belongs to a later event line.
+let headerLine = original.slice(0, original.indexOf('\n')).toString('utf8')
+const firstBoundary = original.indexOf('}{')
+if (firstBoundary !== -1 && (original.indexOf('\n') === -1 || firstBoundary + 1 < original.indexOf('\n'))) {
+  headerLine = original.slice(0, firstBoundary + 1).toString('utf8')
+}
 const header = JSON.parse(headerLine)
 const origCwd = header.cwd
 console.log('original cwd :', origCwd)

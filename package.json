@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-drag",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "DSH Web UI plugin — drag a conversation onto any workspace in the sidebar to organize it. / DSH Web UI 插件：在侧边栏把对话拖到任意工作区即可归类整理，可在设置页开关。",
   "type": "module",

@@ -98,13 +98,9 @@ try {
   warn(`   The package.json dependency was still written — run "dsh plugin --profile ${PROFILE} add link:${PLUGIN_SRC}" or fix the symlink manually.`)
 }
 
-// ---- Best-effort lockfile sync (macOS/Linux only) ---------------------------
+// ---- Best-effort lockfile sync note (macOS/Linux only) ---------------------
 if (process.platform !== 'win32') {
-  const syncScript = join(homedir(), 'Documents', 'dsh-plugins', 'scripts', 'sync-profile-lockfile.py')
-  if (existsSync(syncScript)) {
-    // Only informational; failures are non-fatal.
-    log('ℹ️  (macOS/Linux) lockfile sync via sync-profile-lockfile.py skipped here — run it manually if available.')
-  }
+  log('ℹ️  If your DSH profile uses a lockfile, re-sync it after installing this plugin.')
 }
 
 log('')

@@ -72,15 +72,8 @@ mkdir -p "$NM_DIR"
 ln -sfn "$PLUGIN_SRC" "$NM_DIR/$PLUGIN_NAME"
 echo "✅ 已建立软链: $NM_DIR/$PLUGIN_NAME -> $PLUGIN_SRC"
 
-# ---- 同步 pnpm-lock.yaml（若存在同步脚本）-----------------------------
-SYNC="$HOME/Documents/dsh-plugins/scripts/sync-profile-lockfile.py"
-if [ -f "$SYNC" ]; then
-  if DSH_PROFILE_DIR="$PROFILE_DIR" python3 "$SYNC" --profile "$PROFILE" --verify --fix-symlinks >/dev/null 2>&1; then
-    echo "✅ lockfile 已同步（package.json ↔ pnpm-lock.yaml ↔ node_modules 软链一致）"
-  else
-    echo "⚠️  lockfile 同步有告警（可忽略，软链已建立，刷新页面即可生效）" >&2
-  fi
-fi
+# ---- lockfile 同步提示 --------------------------------------------------
+echo "ℹ️  若你的 DSH profile 使用 lockfile，安装后请重新同步它。"
 
 echo ""
 echo "安装完成。生效方式："

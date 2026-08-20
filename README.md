@@ -25,19 +25,26 @@
 
 ## Installation
 
-One-command install into the DSH web profile:
+One-command install into the DSH web profile. **Run this from inside the plugin directory** (the folder containing `package.json` — after cloning `dsh-workspace-drag`, `cd` into it first):
 
 ```sh
 npm run install:plugin
 ```
 
-or directly:
+Or directly (cross-platform, uses Node.js):
 
 ```sh
-bash install-plugin.sh
+node install-plugin.mjs
 ```
 
-This registers the plugin into `~/.dsh/profiles/web` by adding a `link:` dependency to the profile's `package.json` and creating a `node_modules` symlink. It does **not** run `pnpm install`, so it avoids the pnpm `minimumReleaseAge` policy that rejects dependencies published within the last 24 hours. Idempotent — re-running is a no-op when already installed.
+Works on **Windows (PowerShell), macOS and Linux** — the installer is a plain Node.js script, no bash or PowerShell-specific syntax.
+
+This registers the plugin into `~/.dsh/profiles/web` (on Windows: `%USERPROFILE%\.dsh\profiles\web`) by adding a `link:` dependency to the profile's `package.json` and creating a `node_modules` symlink. It does **not** run `pnpm install`, so it avoids the pnpm `minimumReleaseAge` policy that rejects dependencies published within the last 24 hours. Idempotent — re-running is a no-op when already installed.
+
+> ⚠️ **Windows notes**
+> - Run the command **inside the cloned plugin folder**, not in your home directory — `npm run` needs a `package.json` in the current directory (the error `ENOENT ... C:\Users\<you>\package.json` means you ran it in the wrong folder).
+> - Creating the symlink uses `junction`, which works on Windows without Developer Mode or Administrator rights.
+> - If symlink creation is blocked by policy, the `link:` dependency is still written to the profile — then finish with `dsh plugin --profile web add link:<plugin-path>`.
 
 After installation:
 - Client-only changes: refresh the browser page.

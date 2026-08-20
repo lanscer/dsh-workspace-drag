@@ -26,20 +26,27 @@
 
 ## 安装
 
-一键安装进 DSH web profile：
+一键安装进 DSH web profile。**请先在插件目录内运行**（包含 `package.json` 的那个文件夹——克隆 `dsh-workspace-drag` 后先 `cd` 进去）：
 
 ```sh
 npm run install:plugin
 ```
 
-或直接执行：
+或直接执行（跨平台，基于 Node.js）：
 
 ```sh
-bash install-plugin.sh
+node install-plugin.mjs
 ```
 
-脚本会把插件注册进 `~/.dsh/profiles/web`：在 profile 的 `package.json` 添加 `link:` 依赖，并在 `node_modules` 下建立符号链接。
+支持 **Windows（PowerShell）、macOS、Linux**——安装器是纯 Node.js 脚本，不依赖 bash 或 PowerShell 专属语法。
+
+脚本会把插件注册进 `~/.dsh/profiles/web`（Windows 上为 `%USERPROFILE%\.dsh\profiles\web`）：在 profile 的 `package.json` 添加 `link:` 依赖，并在 `node_modules` 下建立符号链接。
 **不触发 `pnpm install`**，从而绕过 pnpm 的 `minimumReleaseAge` 策略（该策略会拦截发布不足 24 小时的依赖）。幂等——已安装时重复执行会直接跳过。
+
+> ⚠️ **Windows 注意事项**
+> - **必须在克隆下来的插件文件夹内运行**，不要在用户主目录运行——`npm run` 需要当前目录有 `package.json`（报错 `ENOENT ... C:\Users\<你>\package.json` 就是因为在错误目录运行）。
+> - 建符号链接使用 `junction` 类型，Windows 无需开启开发者模式或管理员权限。
+> - 若符号链接被策略拦截，`link:` 依赖仍会写入 profile，此时再用 `dsh plugin --profile web add link:<插件路径>` 补完即可。
 
 安装后生效方式：
 - 纯客户端改动：刷新浏览器页面

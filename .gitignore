@@ -1,0 +1,12 @@
+# Dependencies / build artifacts
+node_modules/
+*.log
+.DS_Store
+
+# Backup files
+*.bak
+*.bak-*
+
+# Local DSH environment (never commit user data or configs)
+~/.dsh/
+.dsh/

@@ -1,0 +1,33 @@
+{
+  "name": "dsh-workspace-drag",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH 拖拽归类对话插件：在 web 侧边栏把对话拖到任意工作区标题即可把该对话归到目标工作区分类整理，可在设置页开关。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  }
+}

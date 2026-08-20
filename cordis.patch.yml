@@ -1,0 +1,9 @@
+# dsh-workspace-drag bundle patch: inserts the workspace-drag plugin row
+# into the web profile roster. The node half (exports ".") serves
+# /api/dsh-workspace-drag/config and /api/dsh-workspace-drag/move (relocating a
+# conversation between workspaces); the browser half (exports "./client",
+# served at /plugins/workspace-drag/client.js) renders the first-level settings
+# page and installs the document-level drag-and-drop engine.
+- insert:
+    - id: workspace-drag
+      name: 'dsh-workspace-drag'

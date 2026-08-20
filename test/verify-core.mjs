@@ -1,5 +1,11 @@
 /**
  * Standalone verification of dsh-workspace-drag's core file operations.
+ *
+ * @file test/verify-core.mjs
+ * @license MIT
+ * @author lanscer <lanscer@qq.com>
+ * @version 1.0.0
+ *
  * Replicates the exact logic from lib/index.js (projectKey, decodeLog,
  * rewriteHeaderCwd, encodeLogZstd) and tests it against a REAL session log
  * copied into a temp dir. Verifies:
@@ -7,6 +13,8 @@
  *  2. decode -> rewrite cwd -> re-encode round-trips: every line identical
  *     except the header's cwd.
  *  3. The re-encoded zstd is decompressible by the zstd CLI.
+ *
+ * Run from the test/ directory:  node verify-core.mjs
  */
 import { execFileSync, execSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'

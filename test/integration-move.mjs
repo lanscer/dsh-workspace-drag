@@ -1,7 +1,18 @@
 /**
  * Integration test for moveSessionToWorkspace (the real exported function
- * from dsh-workspace-drag). Runs against a temp sessions root with fake
- * ctx/sessionPersistence/workspaceRegistry objects.
+ * from dsh-workspace-drag).
+ *
+ * @file test/integration-move.mjs
+ * @license MIT
+ * @author lanscer <lanscer@qq.com>
+ * @version 1.0.0
+ *
+ * Runs against a temp sessions root with fake
+ * ctx/sessionPersistence/workspaceRegistry objects. Verifies live-session
+ * safety, header cwd rewrite, zstd frame preservation, and registry
+ * detach/attach accounting.
+ *
+ * Run from the test/ directory:  node integration-move.mjs
  */
 import { execFileSync, execSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'

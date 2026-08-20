@@ -1,8 +1,8 @@
 {
   "name": "dsh-workspace-drag",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "DSH 拖拽归类对话插件：在 web 侧边栏把对话拖到任意工作区标题即可把该对话归到目标工作区分类整理，可在设置页开关。",
+  "description": "DSH Web UI plugin — drag a conversation onto any workspace in the sidebar to organize it. / DSH Web UI 插件：在侧边栏把对话拖到任意工作区即可归类整理，可在设置页开关。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -13,6 +13,35 @@
       "default": "./lib/client.js"
     },
     "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "test": "node test/verify-core.mjs && node test/integration-move.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "workspace",
+    "drag-and-drop",
+    "organization",
+    "deepseek"
+  ],
+  "author": "lanscer <lanscer@qq.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/lanscer/dsh-workspace-drag#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lanscer/dsh-workspace-drag.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lanscer/dsh-workspace-drag/issues"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dsh": {
     "bundle": {

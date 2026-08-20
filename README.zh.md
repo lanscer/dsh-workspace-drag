@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/dsh-workspace--drag-%E6%8B%96%E6%8B%BD%E5%BD%92%E7%B1%BB%E5%AF%B9%E8%AF%9D-4f8cff?style=for-the-badge&labelColor=1a1d24" alt="dsh-workspace-drag" />
+  <img src="https://img.shields.io/static/v1?label=dsh-workspace-drag&message=%E6%8B%96%E6%8B%BD%E5%BD%92%E7%B1%BB%E5%AF%B9%E8%AF%9D&color=4f8cff&style=for-the-badge&labelColor=1a1d24" alt="dsh-workspace-drag" />
 </p>
 
 <h1 align="center">dsh-workspace-drag</h1>
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/lanscer/dsh-workspace-drag"><img src="https://img.shields.io/badge/English-README.md-4f8cff?style=flat-square" alt="English" /></a>
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License: MIT" />
-  <img src="https://img.shields.io/badge/dsh-plugin-%E2%9C%93-4f8cff?style=flat-square" alt="DSH plugin" />
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-9aa4b2?style=flat-square" alt="Platform" />
+  <a href="https://github.com/lanscer/dsh-workspace-drag"><img src="https://img.shields.io/static/v1?label=English&message=README.md&color=4f8cff&style=flat-square" alt="English" /></a>
+  <img src="https://img.shields.io/static/v1?label=license&message=MIT&color=green&style=flat-square" alt="License: MIT" />
+  <img src="https://img.shields.io/static/v1?label=dsh-plugin&message=%E2%9C%93&color=4f8cff&style=flat-square" alt="DSH plugin" />
+  <img src="https://img.shields.io/static/v1?label=platform&message=macOS%20%7C%20Linux&color=9aa4b2&style=flat-square" alt="Platform" />
 </p>
 
 ---

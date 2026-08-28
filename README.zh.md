@@ -26,7 +26,13 @@
 
 ## 安装
 
-一键安装进 DSH web profile。**请先在插件目录内运行**（包含 `package.json` 的那个文件夹——克隆 `dsh-workspace-drag` 后先 `cd` 进去）：
+从本 GitHub 仓库用 DSH 官方插件命令安装：
+
+```sh
+dsh plugin --profile web add github:lanscer/dsh-workspace-drag
+```
+
+本地 checkout 则可一键安装进 DSH web profile。**请先在插件目录内运行**（包含 `package.json` 的那个文件夹——克隆 `dsh-workspace-drag` 后先 `cd` 进去）：
 
 ```sh
 npm run install:plugin

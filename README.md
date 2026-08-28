@@ -25,7 +25,13 @@
 
 ## Installation
 
-One-command install into the DSH web profile. **Run this from inside the plugin directory** (the folder containing `package.json` — after cloning `dsh-workspace-drag`, `cd` into it first):
+Install from this GitHub repository with the official DSH plugin command:
+
+```sh
+dsh plugin --profile web add github:lanscer/dsh-workspace-drag
+```
+
+Or, for a local checkout, use the bundled one-command installer (**run this from inside the plugin directory** — the folder containing `package.json`; after cloning `dsh-workspace-drag`, `cd` into it first):
 
 ```sh
 npm run install:plugin

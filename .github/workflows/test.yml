@@ -1,0 +1,23 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Syntax-check sources
+        run: |
+          node --check lib/index.js
+          node --check lib/client.js
+          node --check install-plugin.mjs
+          node --check test/verify-core.mjs
+          node --check test/integration-move.mjs
+      - name: Run tests
+        run: npm test

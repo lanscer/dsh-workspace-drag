@@ -228,6 +228,73 @@ try {
   console.log('✅ same-workspace guard throws:', e.message.slice(0, 40))
 }
 
+// ---- v3 regression: dsh 0.1.5+ stores sessions as session.v3.jsonl.zstd.
+//      The move must rewrite the header cwd in EVERY present generation, so
+//      the v3 log stays consistent with its new on-disk location. ----
+{
+  const root2 = mkdtempSync(join(tmpdir(), 'dswd-v3-'))
+  const oldProjectDir2 = join(root2, projectKey(OLD_CWD))
+  const oldSessionDir2 = join(oldProjectDir2, SESSION_ID)
+  mkdirSync(oldSessionDir2, { recursive: true })
+  // Legacy + current-generation logs both present.
+  copyFileSync(SRC, join(oldSessionDir2, 'session.jsonl.zstd'))
+  copyFileSync(SRC, join(oldSessionDir2, 'session.v3.jsonl.zstd'))
+
+  const v3Header = { type: 'session', version: 3, id: SESSION_ID, createdAt: 1700000000000, cwd: OLD_CWD, isSeeded: false, delegationDepth: 0, agentPreset: 'standard' }
+  // Stamp a genuine v3 header into the v3 copy (frame-preserving: rewrite the
+  // first frame's header line, keep the remaining frames byte-identical).
+  const v3Raw = readFileSync(join(oldSessionDir2, 'session.v3.jsonl.zstd'))
+  const v3Frames = scanZstdFrames(v3Raw)
+  const v3FirstPlain = execFileSync(ZSTD_BIN, ['-dc', '--no-progress'], { input: v3Raw.subarray(v3Frames[0].start, v3Frames[0].end) })
+  const v3Nl = v3FirstPlain.indexOf('\n')
+  const v3Head = v3Nl === -1 ? v3FirstPlain : v3FirstPlain.slice(0, v3Nl)
+  const v3Rest = v3Nl === -1 ? Buffer.from('\n') : v3FirstPlain.slice(v3Nl)
+  const v3NewHead = Buffer.from(JSON.stringify(v3Header) + '\n')
+  const v3RewrittenFirst = execFileSync(ZSTD_BIN, ['-q', '-c', '--no-progress'], { input: Buffer.concat([v3NewHead, v3Rest]) })
+  writeFileSync(join(oldSessionDir2, 'session.v3.jsonl.zstd'), Buffer.concat([v3RewrittenFirst, v3Raw.subarray(v3Frames[0].end)]))
+
+  const persistence2 = {
+    root: root2,
+    async list() { return [{ type: 'session', id: SESSION_ID, cwd: OLD_CWD }] },
+    locate(header) { return { kind: 'jsonl', path: join(root2, projectKey(header.cwd), header.id, 'session.jsonl.zstd') } },
+    coordinator: { states: new Map(), live: new Map() },
+  }
+  const registry2 = {
+    get(id) { return fakeEntities.find((e) => e.id === id) },
+    list() { return fakeEntities },
+    async indexHeader() {},
+  }
+  const ctx2 = { sessions: { get() { return undefined } }, sessionPersistence: persistence2, workspaceRegistry: registry2 }
+
+  // Move to a fresh target so the "same workspace" guard does not fire.
+  const V3_TARGET = '/tmp/test-target-workspace-v3'
+  mkdirSync(V3_TARGET, { recursive: true })
+  const v3TargetEntity = makeEntity('ws-v3-target', V3_TARGET, 'v3 target')
+  registry2.get = (id) => fakeEntities.find((e) => e.id === id)
+  try {
+    await moveSessionToWorkspace(ctx2, SESSION_ID, 'ws-v3-target', { waitMs: 0 })
+    const movedDir = join(root2, projectKey(V3_TARGET), SESSION_ID)
+    for (const f of ['session.jsonl.zstd', 'session.v3.jsonl.zstd']) {
+      const p = join(movedDir, f)
+      const ok = existsSync(p)
+      let cwdOk = false
+      if (ok) {
+        const plain = execFileSync(ZSTD_BIN, ['-dc', '--no-progress', p]).toString('utf8')
+        const hdr = JSON.parse(plain.slice(0, plain.indexOf('\n')))
+        cwdOk = hdr.cwd === V3_TARGET && hdr.id === SESSION_ID
+      }
+      const label = `v3-regression ${f} moved + cwd rewritten`
+      console.log(`${ok && cwdOk ? '✅' : '❌'} ${label}`)
+      if (!ok || !cwdOk) allPass = false
+    }
+  } catch (e) {
+    console.log('❌ v3-regression move threw:', e.message)
+    allPass = false
+  }
+  rmSync(root2, { recursive: true, force: true })
+  rmSync(V3_TARGET, { recursive: true, force: true })
+}
+
 rmSync(root, { recursive: true, force: true })
 rmSync(NEW_CWD, { recursive: true, force: true })
 console.log(allPass ? '\nALL INTEGRATION CHECKS PASSED ✅' : '\nSOME CHECKS FAILED ❌')

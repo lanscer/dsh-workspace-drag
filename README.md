@@ -73,8 +73,9 @@ After installation:
 ## Data Model
 
 - Each session's workspace identity is its header `cwd` (an absolute directory path).
-- Sessions are stored at `~/.dsh/sessions/<projectKey(cwd)>/<session-id>/session.jsonl[.zstd]`.
+- Sessions are stored at `~/.dsh/sessions/<projectKey(cwd)>/<session-id>/session.jsonl[.zstd]`; since DSH 0.1.5 new sessions use the v3 format `session.v3.jsonl[.zstd]` (the legacy `session.jsonl[.zstd]` is kept but no longer written).
 - Migration = relocating the session directory under the new workspace's `projectKey` directory + rewriting the first (header) line's `cwd` + using `ctx.workspaceRegistry`'s detach/attach to update the workspace ownership ledger.
+- **v3 support (0.1.5+)**: the move rewrites the header `cwd` in **every** session-log generation present in the directory (`session.v3.jsonl[.zstd]` and legacy `session.jsonl[.zstd]`). Otherwise the DSH persistence layer derives the expected path from `(cwd, id)` and rejects the mismatch with `corrupt session log: header id ... and cwd identify ...` — 0.1.5 reads `session.v3.jsonl.zstd`, so rewriting only the legacy file misses it.
 - zstd logs are **concatenated multi-frame containers**: frame 1 = exactly one header line (newline-terminated), frames 2..N = appended event batches. The DSH reader requires the **first frame to decode to exactly this header line**.
 - During migration, zstd logs undergo **frame-preserving surgery**: only frame 1 is decoded → the header `cwd` is rewritten → re-encoded as a single checksummed frame (matching the DSH backend) → concatenated with the remaining original frames (byte-identical). The log must **never** be compressed as a single frame (that would break the DSH reader's "first frame = header only" invariant).
 

@@ -76,9 +76,14 @@ node install-plugin.mjs
 ## 原理（数据层）
 
 - DSH 每个会话的工作区身份 = 其头部 `cwd`（绝对目录路径）。
-- 会话存储于 `~/.dsh/sessions/<projectKey(cwd)>/<会话id>/session.jsonl[.zstd]`。
+- 会话存储于 `~/.dsh/sessions/<projectKey(cwd)>/<会话id>/session.jsonl[.zstd]`；DSH 0.1.5 起新会话使用
+  v3 格式 `session.v3.jsonl[.zstd]`（旧 `session.jsonl[.zstd]` 保留但不再写入）。
 - 迁移 = 把会话目录移动到目标工作区的 `projectKey` 目录下 + 重写第一行（header）的 `cwd` + 用
   `ctx.workspaceRegistry` 的 detach/attach 更新工作区归属账本。
+- **v3 兼容（0.1.5+）**：迁移时会重写**目录内全部**会话日志世代（`session.v3.jsonl[.zstd]` 与
+  遗留 `session.jsonl[.zstd]`）的 header `cwd`，否则 dsh 持久化层按 `(cwd, id)` 计算期望路径时发现
+  与磁盘实际位置不符，报 `corrupt session log: header id ... and cwd identify ...`（0.1.5 读取的是
+  `session.v3.jsonl.zstd`，只改旧文件会漏掉它）。
 - zstd 日志是**拼接多帧容器**：帧 1 = 恰好一行 header（以换行结尾），帧 2..N = 每次追加的事件批次；
   DSH 读取器要求**第一帧独立解码后恰好是这一行 header**。
 - 迁移时对 zstd 日志做**帧保留手术**：只解码帧 1 → 改写 header 的 `cwd` → 重编码为单帧（带 checksum，

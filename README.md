@@ -68,7 +68,8 @@ After installation:
   - Sessions whose agent is currently running **cannot be moved** (exact agent-status check, no more coarse 30-second mtime window).
   - For a conversation that just finished: the host automatically waits for the log to quiesce (up to 15 s) and then migrates — one drop completes the move, no "retry later" loop.
   - The host-side migration is a copy-verify-atomic-swap: the session directory is copied to a staging location, the rewritten log is verified, then published to the destination. The old directory is only removed after the new copy is verified — data is never lost on failure.
-  - The migration physically relocates the session log file, rewrites the header `cwd` field, and updates the workspace registry ownership account plus in-memory state (live header / persistence-coordinator cache / registry index), so the conversation remains usable after the move.
+  - The migration physically relocates the session log file, rewrites the header `cwd` field, and updates the workspace registry ownership account plus in-memory state (live header / persistence write handle / registry index), so the conversation remains usable after the move.
+  - **Live-write-handle re-pointing (the `ENOENT` fix)**: DSH's jsonl backend derives every append path from the *open write handle's* `header.cwd` (`JsonlSessionHandle.persistContiguous` → `appendLines` → `logPath(root, meta.cwd, id)`) and routes live events through that same handle by id (`tracker.writers`). A move that rewrote only the file and the session object left the handle stamped with the old directory, so the next turn failed with `ENOENT: no such file or directory, open '<old path>/session.v3.jsonl.zstd'`. The move now re-stamps the handle's header **before** the old directory is deleted, and fails closed — original untouched, published copy removed — when the handle cannot be re-pointed.
 
 ## Data Model
 

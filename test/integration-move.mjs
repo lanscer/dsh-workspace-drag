@@ -125,8 +125,16 @@ const persistence = {
   locate(header) {
     return { kind: 'jsonl', path: join(root, projectKey(header.cwd), header.id, 'session.jsonl.zstd') }
   },
-  // Fake coordinator bookkeeping — the real one caches meta.cwd per id and is
-  // cleared by the move so the next append re-adopts from disk.
+  // The REAL dsh 0.1.5 jsonl backend keeps one open write handle per id in
+  // `tracker.writers` and derives every append path from that handle's frozen
+  // `header.cwd` (JsonlSessionHandle.persistContiguous -> appendLines ->
+  // logPath(root, meta.cwd, id)). A move that does not re-stamp this header
+  // leaves the next turn appending to the deleted old directory -> ENOENT.
+  tracker: {
+    writers: new Map([[SESSION_ID, { header: { id: SESSION_ID, cwd: OLD_CWD } }]]),
+  },
+  // Legacy coordinator bookkeeping — older rc builds cached meta.cwd per id and
+  // cleared it on a move. Kept as a fallback; absent on dsh 0.1.5.
   coordinator: {
     states: new Map([[SESSION_ID, { meta: { cwd: OLD_CWD } }]]),
     live: new Map(),
@@ -180,6 +188,17 @@ const checks = []
   // new cwd, coordinator state dropped, registry index updated (single-shot,
   // no full rebuild).
   checks.push(['live header cwd updated', liveSession.header && liveSession.header.cwd === NEW_CWD])
+  // The fix for the post-move ENOENT: the persistence write handle must be
+  // re-pointed at the destination, otherwise the next append targets the
+  // directory the move just deleted.
+  checks.push([
+    'write handle cwd re-pointed',
+    persistence.tracker.writers.get(SESSION_ID).header.cwd === NEW_CWD,
+  ])
+  checks.push([
+    'write handle id preserved',
+    persistence.tracker.writers.get(SESSION_ID).header.id === SESSION_ID,
+  ])
   checks.push(['coordinator state dropped', !persistence.coordinator.states.has(SESSION_ID)])
   checks.push(['registry indexHeader called', registry.indexHeaderCalls.length === 1])
   checks.push(['indexed header has new cwd', registry.indexHeaderCalls[0] && registry.indexHeaderCalls[0].cwd === NEW_CWD])
@@ -293,6 +312,63 @@ try {
   }
   rmSync(root2, { recursive: true, force: true })
   rmSync(V3_TARGET, { recursive: true, force: true })
+}
+
+// ---- Fail-closed regression: a live write handle that CANNOT be re-pointed
+//      must abort the move — original log untouched, no duplicate copy left at
+//      the destination, no in-memory state half-swapped. ----
+{
+  const { utimesSync } = await import('node:fs')
+  const root3 = mkdtempSync(join(tmpdir(), 'dswd-failclosed-'))
+  const oldDir3 = join(root3, projectKey(OLD_CWD), SESSION_ID)
+  mkdirSync(oldDir3, { recursive: true })
+  const oldLog3 = join(oldDir3, 'session.jsonl.zstd')
+  copyFileSync(SRC, oldLog3)
+  const past3 = new Date(Date.now() - 120_000)
+  utimesSync(oldLog3, past3, past3) // quiesce: otherwise the live-write gate fires first
+
+  const FC_TARGET = '/tmp/test-target-workspace-fc'
+  mkdirSync(FC_TARGET, { recursive: true })
+  // A frozen handle makes the header replacement throw (modules are strict mode).
+  const frozenHandle = Object.freeze({ header: { id: SESSION_ID, cwd: OLD_CWD } })
+  const persistence3 = {
+    root: root3,
+    async list() { return [{ type: 'session', id: SESSION_ID, cwd: OLD_CWD }] },
+    locate(header) { return { kind: 'jsonl', path: join(root3, projectKey(header.cwd), header.id, 'session.jsonl.zstd') } },
+    tracker: { writers: new Map([[SESSION_ID, frozenHandle]]) },
+  }
+  makeEntity('ws-fc-target', FC_TARGET, 'fail-closed target')
+  const registry3 = {
+    get(id) { return fakeEntities.find((e) => e.id === id) },
+    list() { return fakeEntities },
+    async indexHeader() {},
+  }
+  const liveSession3 = { id: SESSION_ID, header: { id: SESSION_ID, cwd: OLD_CWD } }
+  const ctx3 = {
+    sessions: { get() { return liveSession3 } },
+    sessionPersistence: persistence3,
+    workspaceRegistry: registry3,
+  }
+
+  let threw = false
+  try {
+    await moveSessionToWorkspace(ctx3, SESSION_ID, 'ws-fc-target', { waitMs: 0 })
+  } catch { threw = true }
+
+  const fcChecks = [
+    ['fail-closed: move refused', threw],
+    ['fail-closed: original log kept', existsSync(oldLog3)],
+    ['fail-closed: no duplicate at destination', !existsSync(join(root3, projectKey(FC_TARGET), SESSION_ID))],
+    ['fail-closed: live session header not swapped', liveSession3.header.cwd === OLD_CWD],
+    ['fail-closed: frozen handle untouched', frozenHandle.header.cwd === OLD_CWD],
+  ]
+  for (const [name, ok] of fcChecks) {
+    console.log(`${ok ? '✅' : '❌'} ${name}`)
+    if (!ok) allPass = false
+  }
+
+  rmSync(root3, { recursive: true, force: true })
+  rmSync(FC_TARGET, { recursive: true, force: true })
 }
 
 rmSync(root, { recursive: true, force: true })

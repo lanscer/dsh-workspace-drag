@@ -71,7 +71,13 @@ node install-plugin.mjs
   - 刚聊完的会话：拖拽后宿主端自动等待写入静止（最长 15 秒）再迁移，一次拖拽即完成，无需"等一会再拖一次"。
   - 迁移在宿主端先复制 + 校验新文件，确认无误后才删除旧目录，失败不丢数据。
   - 移动的是会话日志文件的物理位置 + 头部 `cwd` 字段，并同步工作区注册表归属账本与内存状态
-    （live header / 持久化协调器缓存 / 注册表索引），移动后可继续在该会话中对话。
+    （live header / 持久化写入句柄 / 注册表索引），移动后可继续在该会话中对话。
+  - **写入句柄重定向（`ENOENT` 修复）**：DSH 的 jsonl 后端把每次追加的落盘路径取自**打开中的写入句柄**的
+    `header.cwd`（`JsonlSessionHandle.persistContiguous` → `appendLines` → `logPath(root, meta.cwd, id)`），
+    并按 id 通过同一句柄路由实时事件（`tracker.writers`）。旧版只重写文件与 session 对象、没动该句柄，
+    句柄仍指向旧目录，于是下一次对话失败于
+    `ENOENT: no such file or directory, open '<旧路径>/session.v3.jsonl.zstd'`。现在插件会在**删除旧目录之前**
+    重写该句柄的 header；若句柄无法重定向则放弃移动（原目录不动、已发布的副本回滚）。
 
 ## 原理（数据层）
 

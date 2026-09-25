@@ -18,7 +18,7 @@ import { execFileSync, execSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { moveSessionToWorkspace } from '../lib/index.js'
+import { moveSessionToWorkspace, parseSessionLogFilename, presentSessionLogs } from '../lib/index.js'
 
 /** Locate zstd CLI (same logic as lib/index.js). */
 function findZstd() {
@@ -312,6 +312,187 @@ try {
   }
   rmSync(root2, { recursive: true, force: true })
   rmSync(V3_TARGET, { recursive: true, force: true })
+}
+
+/** Rewrite frame 1's header line in a multi-frame zstd log (frame-preserving). */
+function stampHeaderFirstFrame(raw, header) {
+  const frames = scanZstdFrames(raw)
+  const firstPlain = execFileSync(ZSTD_BIN, ['-dc', '--no-progress'], { input: raw.subarray(frames[0].start, frames[0].end) })
+  const nl = firstPlain.indexOf('\n')
+  const rest = nl === -1 ? Buffer.from('\n') : firstPlain.slice(nl)
+  const newFirst = execFileSync(ZSTD_BIN, ['-q', '-c', '--no-progress'], {
+    input: Buffer.concat([Buffer.from(JSON.stringify(header) + '\n'), rest]),
+  })
+  return Buffer.concat([newFirst, raw.subarray(frames[0].end)])
+}
+
+// ---- v4 + SessionPersistenceSnapshot regression (dsh 0.1.7-rc.1) ----
+// dsh 0.1.7-rc.1 introduced two breaking changes that together disabled the
+// plugin entirely:
+//   1. `sessionPersistence.list()` now returns SessionPersistenceSnapshot
+//      records ({ header, revision, sizeBytes }) instead of bare headers.
+//      Reading `.id` off the snapshot matched nothing, so the move path fell
+//      through to a filesystem scan and failed with
+//      `未找到对话 <id> 的存储文件`.
+//   2. The Session format moved to v4, so the log is
+//      `session.v4.jsonl.zstd`; the plugin's hardcoded v3 candidate list could
+//      not see it even in the fallback scan.
+// This block reproduces BOTH against the real exported function.
+{
+  const root4 = mkdtempSync(join(tmpdir(), 'dswd-v4-'))
+  const oldDir4 = join(root4, projectKey(OLD_CWD), SESSION_ID)
+  mkdirSync(oldDir4, { recursive: true })
+  const v4Log = join(oldDir4, 'session.v4.jsonl.zstd')
+  const v4Header = { type: 'session', version: 4, id: SESSION_ID, createdAt: 1700000000000, cwd: OLD_CWD, isSeeded: false, delegationDepth: 0, agentPreset: 'standard' }
+  writeFileSync(v4Log, stampHeaderFirstFrame(readFileSync(SRC), v4Header))
+
+  const V4_TARGET = '/tmp/test-target-workspace-v4'
+  mkdirSync(V4_TARGET, { recursive: true })
+  makeEntity('ws-v4-target', V4_TARGET, 'v4 target')
+
+  // Exactly the 0.1.7 contract: snapshots carry the header nested under
+  // `.header`, and locate() names the CURRENT-version path.
+  const persistence4 = {
+    root: root4,
+    compression: 'zstd',
+    async list() {
+      return [{ header: { ...v4Header }, revision: 'rev-1', sizeBytes: statSync(v4Log).size }]
+    },
+    locate(header) { return { kind: 'jsonl', path: join(root4, projectKey(header.cwd), header.id, 'session.v4.jsonl.zstd') } },
+    coordinator: { states: new Map(), live: new Map() },
+  }
+  const registry4 = {
+    get(id) { return fakeEntities.find((e) => e.id === id) },
+    list() { return fakeEntities },
+    async indexHeader() {},
+  }
+  const ctx4 = { sessions: { get() { return undefined } }, sessionPersistence: persistence4, workspaceRegistry: registry4 }
+
+  try {
+    const r = await moveSessionToWorkspace(ctx4, SESSION_ID, 'ws-v4-target', { waitMs: 0 })
+    const movedLog = join(root4, projectKey(V4_TARGET), SESSION_ID, 'session.v4.jsonl.zstd')
+    const moved = existsSync(movedLog)
+    let cwdOk = false
+    let verOk = false
+    if (moved) {
+      const plain = execFileSync(ZSTD_BIN, ['-dc', '--no-progress', movedLog]).toString('utf8')
+      const hdr = JSON.parse(plain.slice(0, plain.indexOf('\n')))
+      cwdOk = hdr.cwd === V4_TARGET && hdr.id === SESSION_ID
+      verOk = hdr.version === 4
+    }
+    const v4Checks = [
+      ['v4: snapshot {header} shape recognized (move ran)', r && r.ok === true],
+      ['v4: session.v4.jsonl.zstd moved', moved],
+      ['v4: header cwd rewritten', cwdOk],
+      ['v4: format version preserved', verOk],
+      ['v4: old dir removed', !existsSync(oldDir4)],
+      ['v4: frame count preserved', moved && scanZstdFrames(readFileSync(movedLog)).length === origFrameCount],
+    ]
+    for (const [name, ok] of v4Checks) {
+      console.log(`${ok ? '✅' : '❌'} ${name}`)
+      if (!ok) allPass = false
+    }
+  } catch (e) {
+    console.log('❌ v4-regression move threw:', e.message)
+    allPass = false
+  }
+  rmSync(root4, { recursive: true, force: true })
+  rmSync(V4_TARGET, { recursive: true, force: true })
+}
+
+// ---- Robustness: a THROWING list() must not disable moves globally ----
+// list() walks the whole session tree; one unusable artifact (unsupported
+// future format, a duplicate id left by an interrupted move, an encoding
+// mismatch) makes it throw. The plugin must fall back to its own filesystem
+// scan and still move the requested session.
+{
+  const root5 = mkdtempSync(join(tmpdir(), 'dswd-listfail-'))
+  const oldDir5 = join(root5, projectKey(OLD_CWD), SESSION_ID)
+  mkdirSync(oldDir5, { recursive: true })
+  const v4Log5 = join(oldDir5, 'session.v4.jsonl.zstd')
+  const v4Header5 = { type: 'session', version: 4, id: SESSION_ID, createdAt: 1700000000000, cwd: OLD_CWD, isSeeded: false, delegationDepth: 0, agentPreset: 'standard' }
+  writeFileSync(v4Log5, stampHeaderFirstFrame(readFileSync(SRC), v4Header5))
+
+  const L5_TARGET = '/tmp/test-target-workspace-listfail'
+  mkdirSync(L5_TARGET, { recursive: true })
+  makeEntity('ws-listfail-target', L5_TARGET, 'list-failure target')
+
+  const persistence5 = {
+    root: root5,
+    compression: 'zstd',
+    async list() { throw new Error('duplicate JSONL session id "x" appears in multiple project directories') },
+  }
+  const registry5 = {
+    get(id) { return fakeEntities.find((e) => e.id === id) },
+    list() { return fakeEntities },
+    async indexHeader() {},
+  }
+  const ctx5 = { sessions: { get() { return undefined } }, sessionPersistence: persistence5, workspaceRegistry: registry5 }
+
+  try {
+    await moveSessionToWorkspace(ctx5, SESSION_ID, 'ws-listfail-target', { waitMs: 0 })
+    const movedLog = join(root5, projectKey(L5_TARGET), SESSION_ID, 'session.v4.jsonl.zstd')
+    let cwdOk = false
+    if (existsSync(movedLog)) {
+      const plain = execFileSync(ZSTD_BIN, ['-dc', '--no-progress', movedLog]).toString('utf8')
+      cwdOk = JSON.parse(plain.slice(0, plain.indexOf('\n'))).cwd === L5_TARGET
+    }
+    const lfChecks = [
+      ['list()-throws: fallback scan found the v4 log', existsSync(movedLog)],
+      ['list()-throws: header cwd rewritten', cwdOk],
+    ]
+    for (const [name, ok] of lfChecks) {
+      console.log(`${ok ? '✅' : '❌'} ${name}`)
+      if (!ok) allPass = false
+    }
+  } catch (e) {
+    console.log('❌ list()-throws fallback move threw:', e.message)
+    allPass = false
+  }
+  rmSync(root5, { recursive: true, force: true })
+  rmSync(L5_TARGET, { recursive: true, force: true })
+}
+
+// ---- Generation discovery unit checks (no dsh needed) ----
+{
+  const cases = [
+    ['session.v4.jsonl.zstd', 4, true],
+    ['session.v3.jsonl.zstd', 3, true],
+    ['session.v2.jsonl', 2, false],
+    ['session.v10.jsonl.zstd', 10, true],
+    ['session.jsonl.zstd', 0, true],
+    ['session.jsonl', 0, false],
+    ['session.v0.jsonl.zstd', null, null],
+    ['session.v04.jsonl.zstd', null, null],
+    ['session.V4.jsonl.zstd', null, null],
+    ['session.jsonl.zstd.bak-20260818', null, null],
+    ['session.jsonl.zstd.pre-fix-20260818-172236', null, null],
+    ['session.v4.jsonl.zstd.corrupt-single-frame-1', null, null],
+    ['notes.txt', null, null],
+  ]
+  let ok = true
+  for (const [file, version, compressed] of cases) {
+    const got = parseSessionLogFilename(file)
+    const matches = version === null ? got === null : (got !== null && got.version === version && got.compressed === compressed)
+    if (!matches) {
+      console.log(`❌ discovery: ${file} -> ${JSON.stringify(got)}`)
+      ok = false
+    }
+  }
+  console.log(`${ok ? '✅' : '❌'} generation discovery accepts only canonical names`)
+  if (!ok) allPass = false
+
+  // Newest generation wins, regardless of directory order.
+  const dir6 = mkdtempSync(join(tmpdir(), 'dswd-gens-'))
+  for (const f of ['session.jsonl.zstd', 'session.v3.jsonl.zstd', 'session.v4.jsonl.zstd', 'session.jsonl.zstd.bak-1']) {
+    writeFileSync(join(dir6, f), '')
+  }
+  const ordered = presentSessionLogs(dir6, 'zstd')
+  const expected = ['session.v4.jsonl.zstd', 'session.v3.jsonl.zstd', 'session.jsonl.zstd']
+  const orderedOk = ordered.length === expected.length && ordered.every((f, i) => f === expected[i])
+  console.log(`${orderedOk ? '✅' : '❌'} generation ordering newest-first: ${ordered.join(', ')}`)
+  if (!orderedOk) allPass = false
+  rmSync(dir6, { recursive: true, force: true })
 }
 
 // ---- Fail-closed regression: a live write handle that CANNOT be re-pointed

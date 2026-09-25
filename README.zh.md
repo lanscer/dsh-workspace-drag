@@ -82,14 +82,23 @@ node install-plugin.mjs
 ## 原理（数据层）
 
 - DSH 每个会话的工作区身份 = 其头部 `cwd`（绝对目录路径）。
-- 会话存储于 `~/.dsh/sessions/<projectKey(cwd)>/<会话id>/session.jsonl[.zstd]`；DSH 0.1.5 起新会话使用
-  v3 格式 `session.v3.jsonl[.zstd]`（旧 `session.jsonl[.zstd]` 保留但不再写入）。
+- 会话存储于 `~/.dsh/sessions/<projectKey(cwd)>/<会话id>/session.v<格式版本>.jsonl[.zstd]`。
+  格式版本随 dsh 升级推进：0.1.5 起为 v3（`session.v3.jsonl[.zstd]`），0.1.7-rc.1 起为 v4
+  （`session.v4.jsonl[.zstd]`）；最初版本的 `session.jsonl[.zstd]`（无 `vN` 段，即版本 0）
+  仍会保留在磁盘上。
 - 迁移 = 把会话目录移动到目标工作区的 `projectKey` 目录下 + 重写第一行（header）的 `cwd` + 用
   `ctx.workspaceRegistry` 的 detach/attach 更新工作区归属账本。
-- **v3 兼容（0.1.5+）**：迁移时会重写**目录内全部**会话日志世代（`session.v3.jsonl[.zstd]` 与
-  遗留 `session.jsonl[.zstd]`）的 header `cwd`，否则 dsh 持久化层按 `(cwd, id)` 计算期望路径时发现
-  与磁盘实际位置不符，报 `corrupt session log: header id ... and cwd identify ...`（0.1.5 读取的是
-  `session.v3.jsonl.zstd`，只改旧文件会漏掉它）。
+- **格式版本是"发现"出来的，不是写死的**：插件按规范文件名
+  `^session(?:\.v([1-9][0-9]*))?\.jsonl(\.zstd)?$` 扫描会话目录，取版本号最大的一代，并重写
+  **目录内全部**世代（当前代 + 旧代 + 遗留 `session.jsonl[.zstd]`）的 header `cwd`。这样 dsh
+  再升到 v5/v6 也无需改插件代码；备份文件（`*.bak-*`、`*.pre-fix-*`、`*.corrupt-*`）因不符合规范
+  命名而被忽略。dsh 持久化层会按 `(cwd, id)` 计算期望路径，若磁盘实际位置不符即报
+  `corrupt session log: header id ... and cwd identify ...`——所以每一代都必须重写。
+- **`sessionPersistence.list()` 返回契约**：dsh 0.1.7-rc.1 起返回 `SessionPersistenceSnapshot`
+  记录 `{ header, revision, sizeBytes? }`（header 嵌在 `.header` 下）；更早版本直接返回 header 本身。
+  插件两种形状都接受。`list()` 是"尽力而为"的：它遍历整棵会话树，任何一个不可用产物（未来格式、
+  中断迁移残留的重复 id、编码不匹配）都会让它抛错——此时插件回退到自己的文件系统扫描，只影响
+  该会话，不会让整个功能失效。
 - zstd 日志是**拼接多帧容器**：帧 1 = 恰好一行 header（以换行结尾），帧 2..N = 每次追加的事件批次；
   DSH 读取器要求**第一帧独立解码后恰好是这一行 header**。
 - 迁移时对 zstd 日志做**帧保留手术**：只解码帧 1 → 改写 header 的 `cwd` → 重编码为单帧（带 checksum，
@@ -127,13 +136,16 @@ dsh-workspace-drag/
 - 宿主端需要 `zstd` CLI。插件自动通过 `PATH` 查找，找不到再 fallback 到常见路径（`/opt/homebrew/bin/zstd`、`/usr/local/bin/zstd`、`/usr/bin/zstd`）。macOS 通过 `brew install zstd` 安装，Linux 通过 `apt install zstd` 安装。
 - 需要 DSH 内置服务：`webServer` / `sessions` / `sessionPersistence` / `workspaceRegistry`
   （`@deepseek-ai/dsh-web-app` 已全部加载）。
+- **DSH 版本兼容**：`peerDependencies` 声明为 `>=0.0.1-rc.1 <0.2.0-0`，即覆盖整个 0.1.x（含预发布版，
+  如 0.1.7-rc.1），排除未验证的 0.2.x。会话日志格式版本与 `list()` 返回形状都是运行时探测的，
+  因此 dsh 在 0.1.x 内的升级不需要改插件。
 
 ## 测试
 
 ```bash
 cd test
 node verify-core.mjs      # 校验 zstd 往返 + DSH 帧扫描兼容
-node integration-move.mjs # 端到端集成测试（临时目录，不碰真实数据）
+node integration-move.mjs # 端到端集成测试（临时目录，不碰真实数据）；覆盖 v3/v4 与 SessionPersistenceSnapshot 回归
 ```
 
 ## 使用限制

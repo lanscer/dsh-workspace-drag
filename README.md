@@ -74,9 +74,10 @@ After installation:
 ## Data Model
 
 - Each session's workspace identity is its header `cwd` (an absolute directory path).
-- Sessions are stored at `~/.dsh/sessions/<projectKey(cwd)>/<session-id>/session.jsonl[.zstd]`; since DSH 0.1.5 new sessions use the v3 format `session.v3.jsonl[.zstd]` (the legacy `session.jsonl[.zstd]` is kept but no longer written).
+- Sessions are stored at `~/.dsh/sessions/<projectKey(cwd)>/<session-id>/session.v<format-version>.jsonl[.zstd]`. The format version advances with DSH: v3 (`session.v3.jsonl[.zstd]`) since 0.1.5, v4 (`session.v4.jsonl[.zstd]`) since 0.1.7-rc.1. The original release's `session.jsonl[.zstd]` (no `vN` component, i.e. version 0) is still kept on disk.
 - Migration = relocating the session directory under the new workspace's `projectKey` directory + rewriting the first (header) line's `cwd` + using `ctx.workspaceRegistry`'s detach/attach to update the workspace ownership ledger.
-- **v3 support (0.1.5+)**: the move rewrites the header `cwd` in **every** session-log generation present in the directory (`session.v3.jsonl[.zstd]` and legacy `session.jsonl[.zstd]`). Otherwise the DSH persistence layer derives the expected path from `(cwd, id)` and rejects the mismatch with `corrupt session log: header id ... and cwd identify ...` — 0.1.5 reads `session.v3.jsonl.zstd`, so rewriting only the legacy file misses it.
+- **The format version is discovered, never hardcoded**: the plugin scans the session directory for the canonical name pattern `^session(?:\.v([1-9][0-9]*))?\.jsonl(\.zstd)?$`, takes the highest generation, and rewrites the header `cwd` in **every** generation present (current + older + legacy `session.jsonl[.zstd]`). A future v5/v6 therefore needs no plugin change, while backups (`*.bak-*`, `*.pre-fix-*`, `*.corrupt-*`) fail the pattern and are ignored. The DSH persistence layer derives the expected path from `(cwd, id)` and rejects a mismatch with `corrupt session log: header id ... and cwd identify ...`, so every generation must be rewritten.
+- **`sessionPersistence.list()` return contract**: since DSH 0.1.7-rc.1 it returns `SessionPersistenceSnapshot` records (`{ header, revision, sizeBytes? }`) with the header nested under `.header`; older builds returned the header itself. The plugin accepts both shapes. `list()` is treated as best-effort: it walks the whole session tree, so one unusable artifact (a future format, a duplicate id left by an interrupted move, an encoding mismatch) makes it throw — the plugin then falls back to its own filesystem scan, which affects only that session instead of disabling the feature globally.
 - zstd logs are **concatenated multi-frame containers**: frame 1 = exactly one header line (newline-terminated), frames 2..N = appended event batches. The DSH reader requires the **first frame to decode to exactly this header line**.
 - During migration, zstd logs undergo **frame-preserving surgery**: only frame 1 is decoded → the header `cwd` is rewritten → re-encoded as a single checksummed frame (matching the DSH backend) → concatenated with the remaining original frames (byte-identical). The log must **never** be compressed as a single frame (that would break the DSH reader's "first frame = header only" invariant).
 
@@ -111,13 +112,14 @@ Configuration is persisted in `~/.dsh/dsh-workspace-drag.json`.
 - The host half requires the `zstd` CLI. The plugin auto-detects the binary via `PATH` search, falling back to common paths (`/opt/homebrew/bin/zstd`, `/usr/local/bin/zstd`, `/usr/bin/zstd`). Install via `brew install zstd` (macOS) or `apt install zstd` (Linux).
 - Requires DSH built-in services: `webServer` / `sessions` / `sessionPersistence` / `workspaceRegistry`
   (all loaded by `@deepseek-ai/dsh-web-app`).
+- **DSH version compatibility**: `peerDependencies` declare `>=0.0.1-rc.1 <0.2.0-0`, i.e. the whole 0.1.x line including prereleases (such as 0.1.7-rc.1), excluding untested 0.2.x. The session-log format version and the `list()` return shape are both probed at runtime, so a DSH upgrade within 0.1.x needs no plugin change.
 
 ## Tests
 
 ```bash
 cd test
 node verify-core.mjs      # Validate zstd round-trip + DSH frame scanner compatibility
-node integration-move.mjs # End-to-end integration test (temp directory, does not touch real data)
+node integration-move.mjs # End-to-end integration test (temp dir, no real data touched); covers the v3/v4 + SessionPersistenceSnapshot regressions
 ```
 
 ## Limitations
